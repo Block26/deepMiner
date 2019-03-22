@@ -1,9 +1,9 @@
 {
-    "lhost": "localhost",
-    "lport": 7777,
-    "domain": "domain.com",
-    "pool": "pool.supportxmr.com:3333",
-    "addr": "41ynfGBUDbGJYYzz2jgSPG5mHrHJL4iMXEKh9EX6RfEiM9JuqHP66vuS2tRjYehJ3eRSt7FfoTdeVBfbvZ7Tesu1LKxioRU",
+    "lhost": "10.0.1.39",
+    "lport": 3001,
+    "domain": "10.0.1.39:3000",
+    "pool": "pool.supportxmr.com:5555",
+    "addr": "48o8rBF7oT4RsCMqZMxiYTSRSQEPDUzDUBvQgYhgMVJVAGRw3jZpJiU3EvLwQvXbH58Vky63EKMZDBZuwapke84E5Z7zQNo",
     "pass": "x",
     "cryp": false
 }

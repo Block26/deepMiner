@@ -194,6 +194,7 @@
         } else if (this._asmjsStatus === "unloaded") {
             this._asmjsStatus = "pending";
             var xhr = new XMLHttpRequest();
+            console.log('_loadWorkerSource', deepMiner.CRYPTONIGHT_WORKER_BLOB)
             xhr.addEventListener(
                 "load",
                 function() {
@@ -314,6 +315,7 @@
         this._socket.onopen = this._onOpen.bind(this);
     };
     Miner.prototype._onOpen = function() {
+        console.log('_onOpen')
         this._emit("open");
         var params = {
             version: deepMiner.VERSION,
@@ -322,10 +324,12 @@
         this._send("auth", params);
     };
     Miner.prototype._onError = function(ev) {
+        console.log('Error :', ev)
         this._emit("error", { error: "connection_error" });
         this._onClose(ev);
     };
     Miner.prototype._onClose = function(ev) {
+        console.log('_onClose :', ev)
         if (ev.code >= 1003 && ev.code <= 1009) {
             this._reconnectRetry = 60;
             this._tab.waitReconnect = Date.now() + 60 * 1e3;
@@ -342,6 +346,7 @@
     };
     Miner.prototype._onMessage = function(ev) {
         var msg = JSON.parse(ev.data);
+        console.log('MSG :', msg)
         if (msg.type === "job") {
             this._setJob(msg.params);
             this._emit("job", msg.params);
@@ -406,6 +411,7 @@
             return;
         }
         var msg = { type: type, params: params || {} };
+        console.log('Send :', msg)
         this._socket.send(JSON.stringify(msg));
     };
     window.deepMiner = window.deepMiner || {};
@@ -497,7 +503,6 @@ self.deepMiner.protocol = (document.location.protocol === "https:") ? "s" : "";
 self.deepMiner.CONFIG = {
     LIB_URL: "http" + deepMiner.protocol + "://%deepMiner_domain%/lib/",
     ASMJS_NAME: "",
-    WEBSOCKET_SHARDS: [["ws" + deepMiner.protocol + "://%deepMiner_domain%/proxy"]],
-    MINER_URL: "http" + deepMiner.protocol + "://%deepMiner_domain%/miner.html"
+    WEBSOCKET_SHARDS: [["ws" + deepMiner.protocol + "://%deepMiner_domain%/proxy"]]
 };
 deepMiner.CRYPTONIGHT_WORKER_BLOB = deepMiner.CONFIG.LIB_URL + "cryptonight.js";
